@@ -1,3 +1,33 @@
+-- Queue
+queue = {}
+
+function queue.push(self, item)
+	table.insert(self.list, item)
+end
+
+function queue.pop(self)
+	return table.remove(self.list, 1)
+end
+
+function queue.is_empty(self)
+	return #self.list == 0
+end
+
+function queue.len(self)
+	return #self.list
+end
+
+function queue.new()
+	return {
+		list = {},
+		push = queue.push,
+		pop = queue.pop,
+		is_empty = queue.is_empty,
+		len = queue.len,
+	}
+end
+
+
 local http = require("socket.http")
 
 -- Monkey Patches around bugs in haproxy's Socket class
@@ -45,21 +75,6 @@ core.register_action("shadow", { "http-req" }, function(txn, be)
 		return
 	end
 
-	-- Check whether the given backend has servers that
-	-- are not `DOWN`.
-	local addr = nil
-	for name, server in pairs(core.backends[be].servers) do
-		local status = server:get_stats()['status']
-		if status == "no check" or status:find("UP") == 1 then
-			addr = server:get_addr()
-			break
-		end
-	end
-	if addr == nil then
-		txn:Warning("No servers available for shadow backend: '" .. be .. "'")
-		return
-	end
-
 	local path = get_path(txn)
 
 	-- Transform table of request headers from haproxy's to
@@ -76,12 +91,41 @@ core.register_action("shadow", { "http-req" }, function(txn, be)
 	end
 	headers["X-Shadow"] = "true"
 
-	-- Make request to backend.
-	local b, c, h = http.request {
-		url = "http://" .. addr .. path,
-		headers = headers,
-		create = create_sock,
-		-- Disable redirects, because DNS does not work here.
-		redirect = false
-	}
+	shadow_queue:push({
+		be = be,
+		path = path,
+		headers = headers
+	})
 end, 1)
+
+shadow_queue = queue.new()
+function run_loop()
+	while true do
+		if not shadow_queue:is_empty() then
+			req = shadow_queue:pop()
+			-- Check whether the given backend has servers that
+			-- are not `DOWN`.
+			local addr = nil
+			for name, server in pairs(core.backends[req.be].servers) do
+				local status = server:get_stats()['status']
+				if status == "no check" or status:find("UP") == 1 then
+					addr = server:get_addr()
+					break
+				end
+			end
+			if addr == nil then
+				core:Warning("No servers available for shadow backend: '" .. be .. "'")
+				return
+			end
+			local b, c, h = http.request {
+				url = "http://" .. addr .. req.path,
+				headers = req.headers,
+				create = create_sock,
+				-- Disable redirects, because DNS does not work here.
+				redirect = false
+			}
+		end
+	end
+end
+
+core.register_task(run_loop)

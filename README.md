@@ -10,3 +10,4 @@ curl http://localhost:8080
 ## Open Questions
 * How to handle request content when methods are other than GET
 * How to define sample rates
+* How to balance load over multiple shadow backend servers

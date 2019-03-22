@@ -1,0 +1,10 @@
+version: '3'
+services:
+  backend:
+    build: ./backend
+  haproxy:
+    build: ./haproxy
+    ports:
+      - "8080:80"
+    volumes:
+      - ./haproxy:/usr/local/etc/haproxy

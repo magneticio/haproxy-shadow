@@ -69,6 +69,10 @@ function get_path(txn)
 end
 
 core.register_action("shadow", { "http-req" }, function(txn, be)
+	local method = txn.f:method()
+	if method ~= "GET" then
+		return
+	end
 	-- Check whether the given backend exists.
 	if core.backends[be] == nil then
 		txn:Alert("Unknown shadow backend '" .. be .. "'")
